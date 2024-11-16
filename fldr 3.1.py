@@ -31,8 +31,8 @@ class FolderBrowserApp(QMainWindow):
 
         # Input box for creating folders
         self.input_box = QTextEdit()
-        self.input_box.setPlaceholderText("Enter folder names here, one per line")
-        self.input_box.setFixedHeight(self.directory_name_input.sizeHint().height() * 2)  # Make input box half the original size
+        self.input_box.setPlaceholderText("Enter folder names here, one per line, with indentation for nested folders")
+        self.input_box.setFixedHeight(self.directory_name_input.sizeHint().height() * 2)
         self.input_box.installEventFilter(self)
         main_layout.addWidget(self.input_box)
 
@@ -68,12 +68,24 @@ class FolderBrowserApp(QMainWindow):
         return super().eventFilter(source, event)
 
     def create_folders_from_input(self):
-        folder_names = [line.strip() for line in self.input_box.toPlainText().splitlines() if line.strip()]
-        for name in folder_names:
-            new_folder = {'name': name, 'folders': [], 'id': str(uuid.uuid4())}
-            self.current_directory['folders'].append(new_folder)
+        folder_lines = self.input_box.toPlainText().splitlines()
+        self.create_nested_folders(self.current_directory, folder_lines)
         self.input_box.clear()
         self.refresh_folder_list()
+
+    def create_nested_folders(self, parent_folder, folder_lines, level=0):
+        while folder_lines:
+            line = folder_lines[0]
+            indent_level = len(line) - len(line.lstrip())
+            if indent_level == level:
+                folder_name = line.strip()
+                new_folder = {'name': folder_name, 'folders': [], 'id': str(uuid.uuid4())}
+                parent_folder['folders'].append(new_folder)
+                folder_lines.pop(0)
+            elif indent_level > level:
+                self.create_nested_folders(parent_folder['folders'][-1], folder_lines, level + 1)
+            else:
+                break
 
     def show_context_menu(self, pos):
         context_menu = QMenu()
@@ -90,12 +102,24 @@ class FolderBrowserApp(QMainWindow):
 
     def refresh_folder_list(self):
         self.folder_list.clear()
-        for folder in self.current_directory['folders']:
-            item_widget = FolderItemWidget(folder, self)  # Use FolderItemWidget for each folder item
-            item = QListWidgetItem(self.folder_list)
+        self.add_folder_items(self.current_directory, self.folder_list)
+
+    def add_folder_items(self, directory, list_widget, level=0):
+        for folder in directory['folders']:
+            item_widget = FolderItemWidget(folder, self)
+            item = QListWidgetItem(list_widget)
             item.setSizeHint(item_widget.sizeHint())
-            self.folder_list.setItemWidget(item, item_widget)
+            list_widget.setItemWidget(item, item_widget)
             item.setData(Qt.UserRole, folder)
+
+            # Recursively add nested folders
+            if folder['folders']:
+                nested_list_widget = QListWidget()
+                nested_item = QListWidgetItem(list_widget)
+                nested_item.setSizeHint(nested_list_widget.sizeHint())
+                list_widget.addItem(nested_item)
+                list_widget.setItemWidget(nested_item, nested_list_widget)
+                self.add_folder_items(folder, nested_list_widget, level + 1)
 
     def update_breadcrumb(self):
         path_elements = [self.folder_structure] + self.breadcrumb_path + [self.current_directory]
@@ -129,8 +153,6 @@ class FolderBrowserApp(QMainWindow):
         if not item:
             return
         folder_data = item.data(Qt.UserRole)
-        if folder_data in self.selected_folders:
-            self.selected_folders.remove(folder_data)
         self.current_directory['folders'].remove(folder_data)
         self.refresh_folder_list()
 
@@ -174,15 +196,15 @@ class FolderItemWidget(QWidget):
         layout = QHBoxLayout()
         self.label = QLabel(self.folder['name'])
         self.label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        self.label.mouseDoubleClickEvent = self.enable_inline_editing  # Enable inline editing on double click
+        self.label.mouseDoubleClickEvent = self.enable_inline_editing
         layout.addWidget(self.label)
         self.checkbox = QCheckBox()
         layout.addWidget(self.checkbox)
         layout.addStretch()
-        layout.setSpacing(10)  # Adjust the horizontal spacing
-        layout.setContentsMargins(0, 0, 0, 0)  # Remove margins for smaller height
+        layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)  # Set minimum vertical size policy
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
 
         self.checkbox.stateChanged.connect(self.handle_checkbox_state_change)
 
@@ -225,29 +247,24 @@ class PasterWindow(QDialog):
     def initUI(self):
         layout = QVBoxLayout()
 
-        # Add directory_name_input attribute
         self.directory_name_input = QLineEdit(self.paster_structure['name'])
+        layout.addWidget(self.directory_name_input)
 
-        # Input box for creating folders at the top of the folder structure
-        self.input_box = QTextEdit()  # Changed to QTextEdit for taller height
-        self.input_box.setPlaceholderText("Enter folder names here, one per line")
-        self.input_box.setFixedHeight(self.directory_name_input.sizeHint().height() * 2)  # Make input box half the original size
+        self.input_box = QTextEdit()
+        self.input_box.setPlaceholderText("Enter folder names here, one per line, with indentation for nested folders")
+        self.input_box.setFixedHeight(self.directory_name_input.sizeHint().height() * 2)
         self.input_box.installEventFilter(self)
         layout.addWidget(self.input_box)
 
-        # Breadcrumb for Paster
         self.breadcrumb_label = QLabel()
         layout.addWidget(self.breadcrumb_label)
 
-        # Folder list for Paster
         self.folder_list = QListWidget()
         layout.addWidget(self.folder_list)
         
-        # Context menu for Paster
         self.folder_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.folder_list.customContextMenuRequested.connect(self.show_context_menu)
 
-        # Paste button
         self.paste_button = QPushButton("Paste Structure")
         self.paste_button.clicked.connect(self.paste_structure)
         layout.addWidget(self.paste_button)
@@ -263,12 +280,24 @@ class PasterWindow(QDialog):
         return super().eventFilter(source, event)
 
     def create_folders_from_input(self):
-        folder_names = [line.strip() for line in self.input_box.toPlainText().splitlines() if line.strip()]
-        for name in folder_names:
-            new_folder = {'name': name, 'folders': [], 'id': str(uuid.uuid4())}
-            self.current_directory['folders'].append(new_folder)
+        folder_lines = self.input_box.toPlainText().splitlines()
+        self.create_nested_folders(self.current_directory, folder_lines)
         self.input_box.clear()
         self.refresh_folder_list()
+
+    def create_nested_folders(self, parent_folder, folder_lines, level=0):
+        while folder_lines:
+            line = folder_lines[0]
+            indent_level = len(line) - len(line.lstrip())
+            if indent_level == level:
+                folder_name = line.strip()
+                new_folder = {'name': folder_name, 'folders': [], 'id': str(uuid.uuid4())}
+                parent_folder['folders'].append(new_folder)
+                folder_lines.pop(0)
+            elif indent_level > level:
+                self.create_nested_folders(parent_folder['folders'][-1], folder_lines, level + 1)
+            else:
+                break
 
     def paste_structure(self):
         self.main_window.paste_secondary_structure(self.paster_structure)
@@ -288,12 +317,24 @@ class PasterWindow(QDialog):
 
     def refresh_folder_list(self):
         self.folder_list.clear()
-        for folder in self.current_directory['folders']:
-            item_widget = FolderItemWidgetNoCheckbox(folder, self)  # Use FolderItemWidgetNoCheckbox for each folder item
-            item = QListWidgetItem(self.folder_list)
+        self.add_folder_items(self.current_directory, self.folder_list)
+
+    def add_folder_items(self, directory, list_widget, level=0):
+        for folder in directory['folders']:
+            item_widget = FolderItemWidgetNoCheckbox(folder, self)
+            item = QListWidgetItem(list_widget)
             item.setSizeHint(item_widget.sizeHint())
-            self.folder_list.setItemWidget(item, item_widget)
+            list_widget.setItemWidget(item, item_widget)
             item.setData(Qt.UserRole, folder)
+
+            # Recursively add nested folders
+            if folder['folders']:
+                nested_list_widget = QListWidget()
+                nested_item = QListWidgetItem(list_widget)
+                nested_item.setSizeHint(nested_list_widget.sizeHint())
+                list_widget.addItem(nested_item)
+                list_widget.setItemWidget(nested_item, nested_list_widget)
+                self.add_folder_items(folder, nested_list_widget, level + 1)
 
     def update_breadcrumb(self):
         path_elements = [self.paster_structure] + self.breadcrumb_path + [self.current_directory]
@@ -330,11 +371,6 @@ class PasterWindow(QDialog):
         self.current_directory['folders'].remove(folder_data)
         self.refresh_folder_list()
 
-    def create_new_folder(self):
-        new_folder = {'name': 'New Folder', 'folders': [], 'id': str(uuid.uuid4())}
-        self.current_directory['folders'].append(new_folder)
-        self.refresh_folder_list()
-
 class FolderItemWidgetNoCheckbox(QWidget):
     def __init__(self, folder, parent=None):
         super().__init__(parent)
@@ -346,13 +382,13 @@ class FolderItemWidgetNoCheckbox(QWidget):
         layout = QHBoxLayout()
         self.label = QLabel(self.folder['name'])
         self.label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        self.label.mouseDoubleClickEvent = self.enable_inline_editing  # Enable inline editing on double click
+        self.label.mouseDoubleClickEvent = self.enable_inline_editing
         layout.addWidget(self.label)
         layout.addStretch()
-        layout.setSpacing(10)  # Adjust the horizontal spacing
-        layout.setContentsMargins(0, 0, 0, 0)  # Remove margins for smaller height
+        layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)  # Set minimum vertical size policy
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
 
     def enable_inline_editing(self, event):
         self.label.hide()
