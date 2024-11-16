@@ -1,5 +1,7 @@
 import sys
 import uuid
+import json
+import os
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QDialog, QLabel, 
     QLineEdit, QListWidget, QPushButton, QMenu, QWidget, QListWidgetItem, 
@@ -12,14 +14,24 @@ class FolderBrowserApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("Folder Browser")
         self.setGeometry(100, 100, 800, 600)
-        
-        self.folder_structure = {'name': 'Main Directory', 'folders': [], 'id': str(uuid.uuid4())}
-        self.current_directory = self.folder_structure
-        self.breadcrumb_path = []
 
+        self.folder_structure = self.load_folder_structure()  # Load folder structure from JSON
+        self.current_directory = self.folder_structure  # Initialize current_directory
+        self.breadcrumb_path = []
         self.selected_folders = []
 
         self.initUI()
+
+    def load_folder_structure(self, filename="folder_structure.json"):
+        if os.path.exists(filename):
+            with open(filename, 'r') as f:
+                return json.load(f)
+        else:
+            return {'name': 'Main Directory', 'folders': [], 'id': str(uuid.uuid4())}
+
+    def save_folder_structure(self, filename="folder_structure.json"):
+        with open(filename, 'w') as f:
+            json.dump(self.folder_structure, f, indent=4)
 
     def initUI(self):
         main_layout = QVBoxLayout()
@@ -72,6 +84,7 @@ class FolderBrowserApp(QMainWindow):
         self.create_nested_folders(self.current_directory, folder_lines)
         self.input_box.clear()
         self.refresh_folder_list()
+        self.save_folder_structure()  # Save changes to JSON
 
     def create_nested_folders(self, parent_folder, folder_lines, level=0):
         while folder_lines:
@@ -102,24 +115,12 @@ class FolderBrowserApp(QMainWindow):
 
     def refresh_folder_list(self):
         self.folder_list.clear()
-        self.add_folder_items(self.current_directory, self.folder_list)
-
-    def add_folder_items(self, directory, list_widget, level=0):
-        for folder in directory['folders']:
+        for folder in self.current_directory['folders']:
             item_widget = FolderItemWidget(folder, self)
-            item = QListWidgetItem(list_widget)
+            item = QListWidgetItem(self.folder_list)
             item.setSizeHint(item_widget.sizeHint())
-            list_widget.setItemWidget(item, item_widget)
+            self.folder_list.setItemWidget(item, item_widget)
             item.setData(Qt.UserRole, folder)
-
-            # Recursively add nested folders
-            if folder['folders']:
-                nested_list_widget = QListWidget()
-                nested_item = QListWidgetItem(list_widget)
-                nested_item.setSizeHint(nested_list_widget.sizeHint())
-                list_widget.addItem(nested_item)
-                list_widget.setItemWidget(nested_item, nested_list_widget)
-                self.add_folder_items(folder, nested_list_widget, level + 1)
 
     def update_breadcrumb(self):
         path_elements = [self.folder_structure] + self.breadcrumb_path + [self.current_directory]
@@ -139,6 +140,7 @@ class FolderBrowserApp(QMainWindow):
             self.breadcrumb_path = self.breadcrumb_path[:index - 1]
         self.refresh_folder_list()
         self.update_breadcrumb()
+        self.save_folder_structure()  # Save changes to JSON
 
     def open_folder(self, item):
         if not item:
@@ -148,6 +150,7 @@ class FolderBrowserApp(QMainWindow):
         self.current_directory = folder_data
         self.refresh_folder_list()
         self.update_breadcrumb()
+        self.save_folder_structure()  # Save changes to JSON
 
     def delete_folder(self, item):
         if not item:
@@ -155,16 +158,13 @@ class FolderBrowserApp(QMainWindow):
         folder_data = item.data(Qt.UserRole)
         self.current_directory['folders'].remove(folder_data)
         self.refresh_folder_list()
-
-    def create_new_folder(self):
-        new_folder = {'name': 'New Folder', 'folders': [], 'id': str(uuid.uuid4())}
-        self.current_directory['folders'].append(new_folder)
-        self.refresh_folder_list()
+        self.save_folder_structure()  # Save changes to JSON
 
     def update_main_directory_name(self, new_name):
         self.folder_structure['name'] = new_name
         if self.current_directory == self.folder_structure:
             self.update_breadcrumb()
+        self.save_folder_structure()  # Save changes to JSON
 
     def open_paster_window(self):
         self.paster_window = PasterWindow(self)
@@ -184,6 +184,7 @@ class FolderBrowserApp(QMainWindow):
         for folder in self.selected_folders:
             paste_folders(folder, secondary_structure)
         self.refresh_folder_list()
+        self.save_folder_structure()  # Save changes to JSON
 
 class FolderItemWidget(QWidget):
     def __init__(self, folder, parent=None):
@@ -246,29 +247,22 @@ class PasterWindow(QDialog):
 
     def initUI(self):
         layout = QVBoxLayout()
-
         self.directory_name_input = QLineEdit(self.paster_structure['name'])
         layout.addWidget(self.directory_name_input)
-
         self.input_box = QTextEdit()
         self.input_box.setPlaceholderText("Enter folder names here, one per line, with indentation for nested folders")
         self.input_box.setFixedHeight(self.directory_name_input.sizeHint().height() * 2)
         self.input_box.installEventFilter(self)
         layout.addWidget(self.input_box)
-
         self.breadcrumb_label = QLabel()
         layout.addWidget(self.breadcrumb_label)
-
         self.folder_list = QListWidget()
         layout.addWidget(self.folder_list)
-        
         self.folder_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.folder_list.customContextMenuRequested.connect(self.show_context_menu)
-
         self.paste_button = QPushButton("Paste Structure")
         self.paste_button.clicked.connect(self.paste_structure)
         layout.addWidget(self.paste_button)
-
         self.setLayout(layout)
         self.refresh_folder_list()
         self.update_breadcrumb()
@@ -284,6 +278,7 @@ class PasterWindow(QDialog):
         self.create_nested_folders(self.current_directory, folder_lines)
         self.input_box.clear()
         self.refresh_folder_list()
+        self.main_window.save_folder_structure()  # Save changes to JSON
 
     def create_nested_folders(self, parent_folder, folder_lines, level=0):
         while folder_lines:
@@ -304,37 +299,22 @@ class PasterWindow(QDialog):
 
     def show_context_menu(self, pos):
         context_menu = QMenu()
-        
         open_action = QAction("Open", self)
         open_action.triggered.connect(lambda: self.open_folder(self.folder_list.currentItem()))
         context_menu.addAction(open_action)
-
         delete_action = QAction("Delete", self)
         delete_action.triggered.connect(lambda: self.delete_folder(self.folder_list.currentItem()))
         context_menu.addAction(delete_action)
-
         context_menu.exec_(self.folder_list.mapToGlobal(pos))
 
     def refresh_folder_list(self):
         self.folder_list.clear()
-        self.add_folder_items(self.current_directory, self.folder_list)
-
-    def add_folder_items(self, directory, list_widget, level=0):
-        for folder in directory['folders']:
+        for folder in self.current_directory['folders']:
             item_widget = FolderItemWidgetNoCheckbox(folder, self)
-            item = QListWidgetItem(list_widget)
+            item = QListWidgetItem(self.folder_list)
             item.setSizeHint(item_widget.sizeHint())
-            list_widget.setItemWidget(item, item_widget)
+            self.folder_list.setItemWidget(item, item_widget)
             item.setData(Qt.UserRole, folder)
-
-            # Recursively add nested folders
-            if folder['folders']:
-                nested_list_widget = QListWidget()
-                nested_item = QListWidgetItem(list_widget)
-                nested_item.setSizeHint(nested_list_widget.sizeHint())
-                list_widget.addItem(nested_item)
-                list_widget.setItemWidget(nested_item, nested_list_widget)
-                self.add_folder_items(folder, nested_list_widget, level + 1)
 
     def update_breadcrumb(self):
         path_elements = [self.paster_structure] + self.breadcrumb_path + [self.current_directory]
